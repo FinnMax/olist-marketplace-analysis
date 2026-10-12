@@ -1,0 +1,31 @@
+# Ignore raw Olist dataset files
+
+data/raw/
+*.csv
+
+# Ignore Python cache files, if used later
+
+**pycache**/
+*.py[cod]
+
+# Ignore environment and local configuration files
+
+.env
+.env.*
+!.env.example
+
+# Ignore operating system files
+
+.DS_Store
+Thumbs.db
+
+# Ignore temporary and log files
+
+*.log
+*.tmp
+
+# Ignore local database backups
+
+*.sql.backup
+*.dump
+*.bak
