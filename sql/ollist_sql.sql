@@ -389,5 +389,100 @@ SELECT
     SUM(freight_value) AS all_freight_value
 FROM analytics.fact_order_items
 WHERE order_status = 'delivered';
+
 --------------------------------------------------------------------------------------------------------------
 
+--Phase 5 — Perform business analysis using SQL--
+--1. Monthly sales trend--
+SELECT
+    DATE_TRUNC(
+        'month', order_purchase_timestamp
+    )::date AS purchase_month,
+    COUNT(DISTINCT order_id) AS delivered_orders,
+    SUM(price) AS item_value,
+    SUM(freight_value) AS freight_value
+FROM analytics.fact_order_items
+WHERE order_status = 'delivered'
+GROUP BY 1
+ORDER BY 1;
+
+--2. Top product categories--
+SELECT
+    COALESCE(
+        product_category_name_english,
+        product_category_name,
+        'Unknown'
+    ) AS category,
+    SUM(price) AS item_value,
+    COUNT(DISTINCT order_id) AS order_count
+FROM analytics.fact_order_items
+WHERE order_status = 'delivered'
+GROUP BY 1
+ORDER BY item_value DESC
+LIMIT 10;
+
+--3. Top product categories--
+SELECT
+    COUNT(*) FILTER (
+        WHERE delivered_on_time = FALSE
+    ) AS late_orders,
+
+    COUNT(*) FILTER (
+        WHERE delivered_on_time IS NOT NULL
+    ) AS eligible_orders,
+
+    ROUND(
+        100.0 * COUNT(*) FILTER (
+            WHERE delivered_on_time = FALSE
+        )
+        / NULLIF(
+            COUNT(*) FILTER (
+                WHERE delivered_on_time IS NOT NULL
+            ),
+            0
+        ),
+        2
+    ) AS late_delivery_rate_pct
+
+FROM analytics.fact_orders;
+
+--3. Compare review scores for late and on-time orders--
+SELECT
+    CASE
+        WHEN delivered_on_time = TRUE
+            THEN 'On time or early'
+        WHEN delivered_on_time = FALSE
+            THEN 'Late'
+    END AS delivery_group,
+
+    COUNT(*) AS orders,
+    ROUND(
+        AVG(average_review_score)::numeric,
+        2
+    ) AS average_review_score
+
+FROM analytics.fact_orders
+WHERE delivered_on_time IS NOT NULL
+GROUP BY 1
+ORDER BY 1;
+
+--------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE VIEW analytics.dim_product AS
+SELECT
+    p.product_id,
+    COALESCE(
+        t.product_category_name_english,
+        p.product_category_name,
+        'Unknown'
+    ) AS product_category
+FROM analytics.products p
+LEFT JOIN analytics.category_translation t
+    ON p.product_category_name = t.product_category_name;
+
+	CREATE OR REPLACE VIEW analytics.dim_customer AS
+SELECT
+    customer_id,
+    customer_unique_id,
+    customer_city,
+    customer_state
+FROM analytics.customers;
