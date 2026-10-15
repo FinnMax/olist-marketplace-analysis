@@ -486,3 +486,10 @@ SELECT
     customer_city,
     customer_state
 FROM analytics.customers;
+--------------------------------------------------------------------------------------------------------------
+SELECT
+    100.0 * COUNT(*) FILTER (
+        WHERE delivered_on_time = FALSE
+    ) / NULLIF(COUNT(*), 0) AS late_delivery_percentage
+FROM analytics.fact_orders
+WHERE order_status = 'delivered';
