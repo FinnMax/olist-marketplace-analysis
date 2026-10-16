@@ -487,9 +487,43 @@ SELECT
     customer_state
 FROM analytics.customers;
 --------------------------------------------------------------------------------------------------------------
-SELECT
-    100.0 * COUNT(*) FILTER (
-        WHERE delivered_on_time = FALSE
-    ) / NULLIF(COUNT(*), 0) AS late_delivery_percentage
+SELECT *
 FROM analytics.fact_orders
-WHERE order_status = 'delivered';
+LIMIT 2;
+
+SELECT order_id
+FROM analytics.fact_orders
+GROUP BY order_id
+HAVING COUNT(*) > 1;
+
+
+SELECT (COUNT(*) * 100.0 / (
+	SELECT COUNT(*)
+	FROM analytics.fact_orders
+	WHERE order_status = 'delivered'
+))
+FROM analytics.fact_orders
+WHERE delivered_on_time = False
+AND order_status = 'delivered';
+--------------------------------------------------------------------------------------------------------------
+
+SELECT SUM(price+freight_value)
+FROM analytics.fact_order_items
+WHERE order_status = 'delivered'
+AND order_id IN
+(SELECT order_id
+FROM analytics.fact_order_items
+WHERE order_status = 'delivered'
+GROUP BY order_id
+HAVING COUNT(*) > 1); --9635 unique orders which got multiple entries, with the total item value 2390783.41--
+
+
+SELECT SUM(price+freight_value)
+FROM analytics.fact_order_items
+WHERE order_status = 'delivered'
+AND order_id NOT IN
+(SELECT order_id
+FROM analytics.fact_order_items
+WHERE order_status = 'delivered'
+GROUP BY order_id
+HAVING COUNT(*) > 1); --the total item value 13028990.34 for non repeating orders-- --Need to fix revenue in Power BI--
