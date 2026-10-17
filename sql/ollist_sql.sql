@@ -1,3 +1,15 @@
+CREATE TABLE IF NOT EXISTS raw.order_payments (
+    order_id              VARCHAR(50),
+    payment_sequential    INTEGER,
+    payment_type          VARCHAR(50),
+    payment_installments  INTEGER,
+    payment_value         NUMERIC(12, 2)
+);
+
+SELECT *
+FROM raw.order_payments
+LIMIT 2;
+
 SELECT 'orders' AS table_name, COUNT(*) AS row_count
 FROM raw.orders
 
@@ -391,7 +403,11 @@ FROM analytics.fact_order_items
 WHERE order_status = 'delivered';
 
 --------------------------------------------------------------------------------------------------------------
-
+CREATE OR REPLACE VIEW analytics.order_payments AS
+SELECT
+    *
+FROM raw.order_payments;
+--------------------------------------------------------------------------------------------------------------
 --Phase 5 — Perform business analysis using SQL--
 --1. Monthly sales trend--
 SELECT
@@ -527,3 +543,13 @@ FROM analytics.fact_order_items
 WHERE order_status = 'delivered'
 GROUP BY order_id
 HAVING COUNT(*) > 1); --the total item value 13028990.34 for non repeating orders-- --Need to fix revenue in Power BI--
+
+SELECT COUNT (DISTINCT(customer_unique_id)), COUNT (DISTINCT(customer_id))
+FROM raw.customers;
+--------------------------------------------------------------------------------------------------------------
+SELECT COUNT(DISTINCT(customer_id)), COUNT(DISTINCT(customer_unique_id))
+FROM raw.customers;
+
+SELECT COUNT(order_id)
+FROM raw.orders
+WHERE order_status = 'delivered';
