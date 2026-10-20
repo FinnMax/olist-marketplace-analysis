@@ -1,4 +1,5 @@
 --------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------
 --Check duplicates in key columns--
 SELECT
     'orders' AS table_name,
@@ -88,6 +89,17 @@ ORDER BY table_name, occurrences ASC;
 --Deeper duplicates exploration--
 --------------------------------------------------------------------------------------------------------------
 --order_id(order_items table)
+SELECT
+    order_id,
+    order_item_id,
+    COUNT(*) AS occurrences
+FROM raw.order_items
+GROUP BY
+    order_id,
+    order_item_id
+HAVING COUNT(*) > 1
+ORDER BY occurrences DESC;
+--No composite duplicates detected--
 
 WITH duplicated_order_id AS (
     SELECT
@@ -160,21 +172,42 @@ ORDER BY total_orders DESC;
 --Therefore, repeated customer_unique_id values should not automatically be classified as duplicate records or removed.
 --------------------------------------------------------------------------------------------------------------
 --review_id(reviews table)
-SELECT COUNT(DISTINCT(review_id))
+SELECT *
 FROM raw.reviews
-LIMIT 2;
+WHERE review_id IN (
+    SELECT review_id
+    FROM raw.reviews
+    GROUP BY review_id
+    HAVING COUNT(*) > 1
+)
+ORDER BY review_id, order_id;
 
 SELECT
     review_id,
     COUNT(*) AS number_of_records,
     COUNT(DISTINCT order_id) AS number_of_unique_orders,
-    COUNT(DISTINCT review_score) AS number_of_unique_scores
+    COUNT(DISTINCT review_score) AS number_of_unique_scores,
+    COUNT(DISTINCT review_creation_date) AS number_of_unique_creation_dates,
+    COUNT(DISTINCT review_comment_message) AS number_of_unique_messages,
+    COUNT(DISTINCT review_answer_timestamp) AS number_of_unique_answer_timestamps
 FROM raw.reviews
 GROUP BY review_id
 HAVING COUNT(*) > 1
 ORDER BY number_of_records DESC;
---There are review_id duplicates but the associated order_id are different, even though the review score is the same
---number_of_unique_scores_per_review_group = 1
+
+SELECT
+    COUNT(*) AS total_duplicate_records,
+    COUNT(DISTINCT review_id) AS duplicate_review_ids
+FROM raw.reviews
+WHERE review_id IN (
+    SELECT review_id
+    FROM raw.reviews
+    GROUP BY review_id
+    HAVING COUNT(*) > 1
+);
+
+--During data quality checks on raw.reviews, I identified 1,603 records associated with 789 duplicated review_id values. 
+--After comparing the records, the repeated entries appeared to contain identical review information, indicating duplicate review records.
 
 SELECT *
 FROM raw.reviews
@@ -198,15 +231,26 @@ FROM raw.reviews
 GROUP BY order_id
 HAVING COUNT(*) > 1
 ORDER BY number_of_reviews DESC;
---Some orders in the reviews table are associated with two or three review records. 
---The number of distinct review IDs matches the number of review records for these orders, 
---suggesting that the repeated order IDs are not caused by repeated review IDs within those orders. 
---However, the number of distinct review scores and messages varies. 
---This indicates that some reviews share scores or contain missing or repeated message values. 
---Further investigation of the review content and timestamps is required to determine whether 
---these records represent legitimate multiple review entries or data-quality inconsistencies.
+--The investigation identified multiple records associated with the same order_id. 
+--Some orders have two or three review records, each associated with a different review_id.
+--The results show that the number of distinct review_id values matches the total number of records for these orders. 
+--This suggests that the repeated order_id values are not caused by repeated review IDs within the same order.
+--However, some records have different review scores and review messages, indicating that the records are not necessarily exact duplicates. 
+--Some message values may also be missing or repeated.
 --------------------------------------------------------------------------------------------------------------
 --order_id(payments table)
+SELECT
+    order_id,
+    payment_sequential,
+    COUNT(*) AS occurrences
+FROM raw.order_payments
+GROUP BY
+    order_id,
+    payment_sequential
+HAVING COUNT(*) > 1
+ORDER BY occurrences DESC;
+--No composite duplicates detected
+
 SELECT *
 FROM raw.order_payments
 WHERE order_id IN
@@ -224,4 +268,111 @@ ORDER BY COUNT(payment_sequential) ASC;
 
 --THIS SEEMS LIKE A LEGIT NON DUPLICATES, THE REASON FOR DUPLICATES SEEMS TO BE SEVERAL PAYMENTS BECAUSE 
 --COUNT(payment_sequential) > 1 FOR ALL THE GROUPED ORDER_ID
+--------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------
+--Check missing values in key columns--
+--------------------------------------------------------------------------------------------------------------
+--category translation--
+SELECT *
+FROM raw.category_translation
+WHERE NULLIF(TRIM(product_category_name), '') IS NULL
+OR NULLIF(TRIM(product_category_name_english), '') IS NULL;
+--No missing values--
+--------------------------------------------------------------------------------------------------------------
+--customers--
+SELECT *
+FROM raw.customers
+WHERE NULLIF(TRIM(customer_id), '') IS NULL
+OR NULLIF(TRIM(customer_unique_id), '') IS NULL
+OR NULLIF(TRIM(customer_city), '') IS NULL
+OR NULLIF(TRIM(customer_state), '') IS NULL;
+--No missing values--
+--------------------------------------------------------------------------------------------------------------
+--order_items--
+SELECT *
+FROM raw.order_items
+WHERE NULLIF(TRIM(order_id), '') IS NULL
+OR NULLIF(TRIM(order_item_id), '') IS NULL
+OR NULLIF(TRIM(product_id), '') IS NULL
+OR NULLIF(TRIM(seller_id), '') IS NULL
+OR NULLIF(TRIM(price), '') IS NULL
+OR NULLIF(TRIM(freight_value), '') IS NULL;
+--No missing values--
+--------------------------------------------------------------------------------------------------------------
+--order_payments--
+SELECT *
+FROM raw.order_payments
+WHERE NULLIF(TRIM(order_id), '') IS NULL
+OR payment_sequential IS NULL
+OR NULLIF(TRIM(payment_type), '') IS NULL
+OR payment_installments IS NULL
+OR payment_value IS NULL;
+--No missing values--
+--------------------------------------------------------------------------------------------------------------
+--orders--
+SELECT *
+FROM raw.orders
+WHERE NULLIF(TRIM(order_id), '') IS NULL
+OR NULLIF(TRIM(customer_id), '') IS NULL
+OR NULLIF(TRIM(order_status), '') IS NULL
+OR NULLIF(TRIM(order_purchase_timestamp), '') IS NULL
+OR NULLIF(TRIM(order_delivered_customer_date), '') IS NULL
+OR NULLIF(TRIM(order_estimated_delivery_date), '') IS NULL;
+--2956 orders with the missing order_delivered_customer_date were detected--
+SELECT order_status, COUNT(*)
+FROM raw.orders
+WHERE NULLIF(TRIM(order_delivered_customer_date), '') IS NULL
+GROUP BY order_status;
+--"approved"	2--
+--"canceled"	619--
+--"created"		5--
+--"delivered"	8--
+--"invoiced"	314--
+--"processing"	301--
+--"shipped"		1107--
+--"unavailable"	609--
+
+SELECT *
+FROM raw.orders
+WHERE order_status = 'delivered'
+  AND order_delivered_customer_date IS NULL;
+
+SELECT COUNT(*)
+FROM raw.orders
+WHERE order_status = 'delivered';
+--Eight orders marked as delivered have missing order_delivered_customer_date values. This is inconsistent with the expected meaning of the order status, as delivered orders would normally be expected to have a recorded customer delivery timestamp.
+
+--Compared with the more than 96,000+ delivered orders in the dataset, these eight records represent a negligible proportion (less than approximately 0.009%).
+--------------------------------------------------------------------------------------------------------------
+--products--
+SELECT *
+FROM raw.products
+WHERE NULLIF(TRIM(product_id), '') IS NULL
+OR NULLIF(TRIM(product_category_name), '') IS NULL;
+--There are 610 products with missing product_category_name--
+
+SELECT 
+	o.order_id,
+	o.order_item_id,
+	o.product_id,
+	p.product_category_name
+FROM raw.order_items AS o
+INNER JOIN raw.products AS p
+ON o.product_id = p.product_id
+WHERE product_category_name IS NULL
+ORDER BY order_id;
+-- total of 610 products were identified with missing product category information in raw.products. A join between raw.order_items and raw.products was used to identify order items associated with these products.
+
+--These missing categories may affect category-level sales analysis, product segmentation, and reporting. However, the absence of category information does not necessarily indicate that the products themselves are invalid.
+
+--Decision: Retain these products in the dataset rather than removing them. Preserve the missing category values as NULL or assign an explicit label such as Unknown in the reporting layer, depending on the analysis requirements.
+--------------------------------------------------------------------------------------------------------------
+--reviews--
+SELECT *
+FROM raw.reviews
+WHERE NULLIF(TRIM(review_id), '') IS NULL
+OR NULLIF(TRIM(order_id), '') IS NULL
+OR NULLIF(TRIM(review_score), '') IS NULL;
+--No missing values--
+--------------------------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------------------------
