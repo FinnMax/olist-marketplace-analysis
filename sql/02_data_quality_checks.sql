@@ -1,6 +1,9 @@
 --------------------------------------------------------------------------------------------------------------
+-- СКРИПТ ПРОВЕРКИ КАЧЕСТВА ДАННЫХ (DATA QUALITY CHECKS)
+-- Цель: выявить дубликаты, пропуски и аномалии в сырых данных перед построением аналитики.
 --------------------------------------------------------------------------------------------------------------
---Check duplicates in key columns--
+-- 1. ПОИСК ДУБЛИКАТОВ В КЛЮЧЕВЫХ КОЛОНКАХ
+--------------------------------------------------------------------------------------------------------------
 SELECT
     'orders' AS table_name,
     order_id AS id_value,
@@ -80,15 +83,17 @@ GROUP BY order_id
 HAVING COUNT(*) > 1
 
 ORDER BY table_name, occurrences ASC;
---Duplicates have been detected in the 
---order_id(order_items table), 
---customer_unique_id(customers table), 
---review_id(reviews table)
---order_id(payments table)
+
+-- Обнаружены дубликаты в:
+-- order_id (таблица order_items)
+-- customer_unique_id (таблица customers)
+-- review_id (таблица reviews)
+-- order_id (таблица order_payments)
+
 --------------------------------------------------------------------------------------------------------------
---Deeper duplicates exploration--
+-- 2. ДЕТАЛЬНЫЙ АНАЛИЗ ОБНАРУЖЕННЫХ ДУБЛИКАТОВ
 --------------------------------------------------------------------------------------------------------------
---order_id(order_items table)
+-- 2.1. Анализ order_id в таблице order_items
 SELECT
     order_id,
     order_item_id,
@@ -99,7 +104,7 @@ GROUP BY
     order_item_id
 HAVING COUNT(*) > 1
 ORDER BY occurrences DESC;
---No composite duplicates detected--
+-- Составных дубликатов (order_id + order_item_id) не обнаружено.
 
 WITH duplicated_order_id AS (
     SELECT
@@ -113,9 +118,10 @@ WITH duplicated_order_id AS (
 SELECT *
 FROM duplicated_order_id
 WHERE number_of_items_per_order <> appearance_of_order;
+-- Заказов с несовпадением количества не обнаружено. 
+-- Вывод: дублирование order_id обусловлено структурой "один-ко-многим" (несколько товаров в одном заказе).
 
---No orders like this are detected, suggesting that the duplication of the order_id is due to the several items per order_id--
--- Check for duplicate order-item combinations
+-- Повторная проверка на дубликаты комбинаций order_id + order_item_id
 SELECT
     order_id,
     order_item_id,
@@ -126,11 +132,10 @@ GROUP BY
     order_item_id
 HAVING COUNT(*) > 1
 ORDER BY occurrences DESC;
---The repeated order_id values in raw.order_items are consistent with the table's one-to-many structure, 
---where a single order can contain multiple items. No duplicate (order_id, order_item_id) combinations were detected, 
---so these repeated order IDs are not evidence of duplicate order-item records.
+-- Повторяющиеся order_id в raw.order_items соответствуют структуре таблицы, где в одном заказе может быть несколько товаров.
+-- Дубликатов комбинаций (order_id, order_item_id) нет, поэтому эти записи не являются дублями.
 --------------------------------------------------------------------------------------------------------------
---customer_unique_id(customers table)
+-- 2.2. Анализ customer_unique_id в таблице customers
 SELECT *
 FROM raw.customers
 WHERE customer_unique_id IN
@@ -139,9 +144,9 @@ WHERE customer_unique_id IN
 	GROUP BY customer_unique_id
 	HAVING COUNT(*) > 1)
 ORDER BY customer_unique_id;
---the repeated customer_unique_id values suggest that the same underlying customer has multiple records
+-- Повторяющиеся customer_unique_id указывают на то, что один и тот же клиент может иметь несколько записей.
 
---Check whether these records are associated with different orders
+-- Проверка, связаны ли эти записи с разными заказами
 SELECT
     c.customer_unique_id,
     c.customer_id,
@@ -155,7 +160,7 @@ WHERE c.customer_unique_id =
     '00172711b30d52eea8b313a7f2cced02'
 ORDER BY o.order_purchase_timestamp;
 
---Quantify this across all customers--
+-- Количественная оценка по всем клиентам
 SELECT
     c.customer_unique_id,
     COUNT(DISTINCT c.customer_id) AS customer_records,
@@ -166,12 +171,12 @@ LEFT JOIN raw.orders AS o
 GROUP BY c.customer_unique_id
 HAVING COUNT(DISTINCT c.customer_id) > 1
 ORDER BY total_orders DESC;
---The repeated customer_unique_id values are consistent with the Olist dataset's structure, 
---in which one underlying customer can be associated with multiple customer records and orders. 
---The investigation of the example customer confirmed two distinct orders with different statuses. 
---Therefore, repeated customer_unique_id values should not automatically be classified as duplicate records or removed.
+-- Повторяющиеся customer_unique_id соответствуют структуре датасета Olist, 
+-- где один клиент может быть связан с несколькими customer_id и заказами.
+-- Проверка примера подтвердила наличие двух разных заказов.
+-- Вывод: повторяющиеся customer_unique_id не являются дублями и не подлежат удалению.
 --------------------------------------------------------------------------------------------------------------
---review_id(reviews table)
+-- 2.3. Анализ review_id в таблице reviews
 SELECT *
 FROM raw.reviews
 WHERE review_id IN (
@@ -206,8 +211,9 @@ WHERE review_id IN (
     HAVING COUNT(*) > 1
 );
 
---During data quality checks on raw.reviews, I identified 1,603 records associated with 789 duplicated review_id values. 
---After comparing the records, the repeated entries appeared to contain identical review information, indicating duplicate review records.
+-- В ходе проверки качества данных в raw.reviews обнаружено 1 603 записи с 789 дублирующимися значениями review_id.
+-- Сравнение записей показало, что повторяющиеся строки содержат идентичную информацию об отзыве,
+-- что указывает на полные дубликаты.
 
 SELECT *
 FROM raw.reviews
@@ -217,8 +223,8 @@ WHERE order_id IN
 	GROUP BY order_id
 	HAVING COUNT(*) > 1)
 ORDER BY order_id;
---There appears to be several duplicated order_id with several different review_id,
---some of there reviews have different review_scores and different messages as well--
+-- Обнаружено несколько дублирующихся order_id с разными review_id.
+-- Некоторые из этих отзывов имеют разные оценки и тексты сообщений.
 
 SELECT
     order_id,
@@ -231,14 +237,13 @@ FROM raw.reviews
 GROUP BY order_id
 HAVING COUNT(*) > 1
 ORDER BY number_of_reviews DESC;
---The investigation identified multiple records associated with the same order_id. 
---Some orders have two or three review records, each associated with a different review_id.
---The results show that the number of distinct review_id values matches the total number of records for these orders. 
---This suggests that the repeated order_id values are not caused by repeated review IDs within the same order.
---However, some records have different review scores and review messages, indicating that the records are not necessarily exact duplicates. 
---Some message values may also be missing or repeated.
+-- Обнаружено несколько записей с одинаковым order_id. У некоторых заказов есть 2 или 3 отзыва, 
+-- каждый с уникальным review_id.
+-- Количество уникальных review_id совпадает с общим числом записей для этих заказов.
+-- Это говорит о том, что повторяющиеся order_id не вызваны дублированием ID отзывов внутри одного заказа.
+-- Однако некоторые записи имеют разные оценки и сообщения, что означает, что они не являются точными дублями.
 --------------------------------------------------------------------------------------------------------------
---order_id(payments table)
+-- 2.4. Анализ order_id в таблице order_payments
 SELECT
     order_id,
     payment_sequential,
@@ -249,7 +254,7 @@ GROUP BY
     payment_sequential
 HAVING COUNT(*) > 1
 ORDER BY occurrences DESC;
---No composite duplicates detected
+-- Составных дубликатов (order_id + payment_sequential) не обнаружено.
 
 SELECT *
 FROM raw.order_payments
@@ -266,29 +271,29 @@ GROUP BY order_id
 HAVING COUNT(*) > 1
 ORDER BY COUNT(payment_sequential) ASC;
 
---THIS SEEMS LIKE A LEGIT NON DUPLICATES, THE REASON FOR DUPLICATES SEEMS TO BE SEVERAL PAYMENTS BECAUSE 
---COUNT(payment_sequential) > 1 FOR ALL THE GROUPED ORDER_ID
+-- Вывод: эти записи не являются дублями. Причина в том, что COUNT(payment_sequential) > 1 для всех сгруппированных order_id.
+-- Один заказ может быть оплачен несколькими транзакциями (например, часть на карту, часть ваучером).
 --------------------------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------------------------
---Check missing values in key columns--
+-- 3. ПРОВЕРКА ПРОПУЩЕННЫХ ЗНАЧЕНИЙ (NULL / ПУСТЫЕ СТРОКИ)
 --------------------------------------------------------------------------------------------------------------
---category translation--
+-- 3.1. Проверка category_translation
 SELECT *
 FROM raw.category_translation
 WHERE NULLIF(TRIM(product_category_name), '') IS NULL
 OR NULLIF(TRIM(product_category_name_english), '') IS NULL;
---No missing values--
+-- Пропусков не обнаружено.
 --------------------------------------------------------------------------------------------------------------
---customers--
+-- 3.2. Проверка customers
 SELECT *
 FROM raw.customers
 WHERE NULLIF(TRIM(customer_id), '') IS NULL
 OR NULLIF(TRIM(customer_unique_id), '') IS NULL
 OR NULLIF(TRIM(customer_city), '') IS NULL
 OR NULLIF(TRIM(customer_state), '') IS NULL;
---No missing values--
+-- Пропусков не обнаружено.
 --------------------------------------------------------------------------------------------------------------
---order_items--
+-- 3.3. Проверка order_items
 SELECT *
 FROM raw.order_items
 WHERE NULLIF(TRIM(order_id), '') IS NULL
@@ -297,9 +302,9 @@ OR NULLIF(TRIM(product_id), '') IS NULL
 OR NULLIF(TRIM(seller_id), '') IS NULL
 OR NULLIF(TRIM(price), '') IS NULL
 OR NULLIF(TRIM(freight_value), '') IS NULL;
---No missing values--
+-- Пропусков не обнаружено.
 --------------------------------------------------------------------------------------------------------------
---order_payments--
+-- 3.4. Проверка order_payments
 SELECT *
 FROM raw.order_payments
 WHERE NULLIF(TRIM(order_id), '') IS NULL
@@ -307,9 +312,9 @@ OR payment_sequential IS NULL
 OR NULLIF(TRIM(payment_type), '') IS NULL
 OR payment_installments IS NULL
 OR payment_value IS NULL;
---No missing values--
+-- Пропусков не обнаружено.
 --------------------------------------------------------------------------------------------------------------
---orders--
+-- 3.5. Проверка orders
 SELECT *
 FROM raw.orders
 WHERE NULLIF(TRIM(order_id), '') IS NULL
@@ -318,19 +323,14 @@ OR NULLIF(TRIM(order_status), '') IS NULL
 OR NULLIF(TRIM(order_purchase_timestamp), '') IS NULL
 OR NULLIF(TRIM(order_delivered_customer_date), '') IS NULL
 OR NULLIF(TRIM(order_estimated_delivery_date), '') IS NULL;
---2956 orders with the missing order_delivered_customer_date were detected--
+-- Обнаружено 2 956 заказов с пропущенной датой доставки клиенту (order_delivered_customer_date).
+
 SELECT order_status, COUNT(*)
 FROM raw.orders
 WHERE NULLIF(TRIM(order_delivered_customer_date), '') IS NULL
 GROUP BY order_status;
---"approved"	2--
---"canceled"	619--
---"created"		5--
---"delivered"	8--
---"invoiced"	314--
---"processing"	301--
---"shipped"		1107--
---"unavailable"	609--
+-- Статусы: approved (2), canceled (619), created (5), delivered (8), invoiced (314), 
+-- processing (301), shipped (1107), unavailable (609).
 
 SELECT *
 FROM raw.orders
@@ -340,16 +340,17 @@ WHERE order_status = 'delivered'
 SELECT COUNT(*)
 FROM raw.orders
 WHERE order_status = 'delivered';
---Eight orders marked as delivered have missing order_delivered_customer_date values. This is inconsistent with the expected meaning of the order status, as delivered orders would normally be expected to have a recorded customer delivery timestamp.
-
---Compared with the more than 96,000+ delivered orders in the dataset, these eight records represent a negligible proportion (less than approximately 0.009%).
+-- Восемь заказов со статусом "delivered" имеют пропущенную дату доставки. 
+-- Это несоответствие: доставленные заказы должны иметь зафиксированную дату вручения.
+-- По сравнению с более чем 96 000+ доставленных заказов в датасете, эти 8 записей 
+-- составляют ничтожную долю (менее ~0.009%).
 --------------------------------------------------------------------------------------------------------------
---products--
+-- 3.6. Проверка products
 SELECT *
 FROM raw.products
 WHERE NULLIF(TRIM(product_id), '') IS NULL
 OR NULLIF(TRIM(product_category_name), '') IS NULL;
---There are 610 products with missing product_category_name--
+-- Обнаружено 610 товаров с пропущенной категорией (product_category_name).
 
 SELECT 
 	o.order_id,
@@ -361,18 +362,18 @@ INNER JOIN raw.products AS p
 ON o.product_id = p.product_id
 WHERE product_category_name IS NULL
 ORDER BY order_id;
--- total of 610 products were identified with missing product category information in raw.products. A join between raw.order_items and raw.products was used to identify order items associated with these products.
-
---These missing categories may affect category-level sales analysis, product segmentation, and reporting. However, the absence of category information does not necessarily indicate that the products themselves are invalid.
-
---Decision: Retain these products in the dataset rather than removing them. Preserve the missing category values as NULL or assign an explicit label such as Unknown in the reporting layer, depending on the analysis requirements.
+-- Всего 610 товаров без категории. Джойн показал, что они встречаются в заказах.
+-- Отсутствие категории может повлиять на анализ продаж по категориям и сегментацию.
+-- При этом отсутствие категории не означает, что товар невалиден.
+-- Решение: оставить эти товары в датасете. Пропуски заменить на NULL или метку "Unknown" 
+-- на слое отчетности (в зависимости от требований аналитики).
 --------------------------------------------------------------------------------------------------------------
---reviews--
+-- 3.7. Проверка reviews
 SELECT *
 FROM raw.reviews
 WHERE NULLIF(TRIM(review_id), '') IS NULL
 OR NULLIF(TRIM(order_id), '') IS NULL
 OR NULLIF(TRIM(review_score), '') IS NULL;
---No missing values--
+-- Пропусков не обнаружено.
 --------------------------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------------------------

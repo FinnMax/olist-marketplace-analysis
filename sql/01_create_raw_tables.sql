@@ -1,9 +1,9 @@
 --------------------------------------------------------------------------------------------------------------
---Create a schema for raw data--
+-- Скрипт создает схему raw и таблицы для загрузки исходных данных датасета Olist.
 
 CREATE SCHEMA IF NOT EXISTS raw;
 --------------------------------------------------------------------------------------------------------------
---Create raw tables--
+-- Создание сырых таблиц
 
 CREATE TABLE raw.orders (
     order_id TEXT,
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS raw.order_payments (
     payment_value         NUMERIC(12, 2)
 );
 --------------------------------------------------------------------------------------------------------------
---Check that the data loaded correctly--
+--Проверка, что данные загрузились корректно (вывод количества строк по всем таблицам)
 
 SELECT 'orders' AS table_name, COUNT(*) AS row_count
 FROM raw.orders
@@ -104,7 +104,7 @@ UNION ALL
 SELECT 'order_payments', COUNT(*)
 FROM raw.order_payments;
 --------------------------------------------------------------------------------------------------------------
---Test table sample--
+-- Выборочный просмотр первых 5 строк для проверки структуры
 
 SELECT *
 FROM raw.orders
